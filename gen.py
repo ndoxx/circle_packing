@@ -38,21 +38,20 @@ def collide_circle_any(r, R, circles, w, h):
 		if collide_circles(r, circle.getCenter(), R, circle.radius):
 			return True
 	return False
-
-
-def put_pixels(center, p, pixels):
-	pixels.add((int(center.x+p.x), int(center.y+p.y)))
-	pixels.add((int(center.x-p.x), int(center.y+p.y)))
-	pixels.add((int(center.x+p.x), int(center.y-p.y)))
-	pixels.add((int(center.x-p.x), int(center.y-p.y)))
-	pixels.add((int(center.x+p.y), int(center.y+p.x)))
-	pixels.add((int(center.x-p.y), int(center.y+p.x)))
-	pixels.add((int(center.x+p.y), int(center.y-p.x)))
-	pixels.add((int(center.x-p.y), int(center.y-p.x)))
   
 
-# Bresenham's algorithm for circle generation
+# Bresenham's algorithm for rasterized circle generation
 def bresenham(center, r):
+	def put_pixels(center, p, pixels):
+		pixels.add((int(center.x+p.x), int(center.y+p.y)))
+		pixels.add((int(center.x-p.x), int(center.y+p.y)))
+		pixels.add((int(center.x+p.x), int(center.y-p.y)))
+		pixels.add((int(center.x-p.x), int(center.y-p.y)))
+		pixels.add((int(center.x+p.y), int(center.y+p.x)))
+		pixels.add((int(center.x-p.y), int(center.y+p.x)))
+		pixels.add((int(center.x+p.y), int(center.y-p.x)))
+		pixels.add((int(center.x-p.y), int(center.y-p.x)))
+
 	x = 0
 	y = r
 	d = 3 - 2 * r
@@ -69,11 +68,13 @@ def bresenham(center, r):
 	return pixels
 
 
+# Check if all pixels of a rasterized circle are within a white area of the mask
 def collide_circle_mask(r, R, image):
-	# Obtain list of pixels along circle
+	# Obtain list of pixels along circle (we only need to check against these)
 	pixels = bresenham(r, R)
 	w = image.getWidth()
 	h = image.getHeight()
+	# Return True iif all pixels are within a white area of the mask
 	for pixel in pixels:
 		x = pixel[0]
 		y = h-pixel[1]
@@ -117,7 +118,6 @@ def main():
 	mask = Image(Point(W/2,H/2), "res/ok_mask.png")
 	image = Image(Point(W/2,H/2), "res/ok_color.png")
 
-	step = 1
 	win = GraphWin('CPack', W, H)
 	win.setCoords(0,0,W,H)
 
@@ -128,32 +128,40 @@ def main():
 	clear_screen(win,W,H)
 	# mask.draw(win)
 
-	attempts = 0
-	while attempts < 10000:
+	max_radius = W/2
+	min_radius = 2
+
+	for ii in range(10000):
 		# Select random point in screen
-		center = Point(random.randint(0,W-1), random.randint(0,H-1))
-		radius = step
+		center = Point(random.randint(1,W-1), random.randint(1,H-1))
+		radius = 1
 		# Make sure initial center is valid
 		matches = spindex.intersect(get_bbox(center, radius))
 		while point_in_any_circle(center, matches) or not point_in_mask(center, mask):
 			center = Point(random.randint(0,W-1), random.randint(0,H-1))
 			matches = spindex.intersect(get_bbox(center, radius))
 		# Get circles in the direct vicinity
-		matches = spindex.intersect(get_bbox(center, radius+step))
+		matches = spindex.intersect(get_bbox(center, radius+1))
 		# Grow circle till it collides with screen or another circle
-		while not collide_circle_any(center, radius+step, matches, W, H) and collide_circle_mask(center, radius+step, mask):
-			radius += step
+		# NOTE(ndx): I tried binary search here but found that on average it resulted in more collision queries
+		while not collide_circle_any(center, radius+1, matches, W, H) and collide_circle_mask(center, radius+1, mask):
+			radius += 1
 			matches = spindex.intersect(get_bbox(center, radius))
-		# Get rid of circle if too small
-		if radius > 2*step:
-			circle = Circle(center, radius)
-			color = image.getPixel(int(center.x), int(H-center.y))
-			circle.setFill(color_rgb(color[0],color[1],color[2]))
-			circle.draw(win)
-			# Add circle to quadtree
-			spindex.insert(circle, get_bbox(center, radius))
-		attempts += 1
+			if radius >= max_radius:
+				break
 
+		# Get rid of circle if too small
+		if radius <= min_radius:
+			continue
+
+		circle = Circle(center, radius)
+		color = image.getPixel(int(center.x), int(H-center.y))
+		circle.setFill(color_rgb(color[0],color[1],color[2]))
+		circle.draw(win)
+		# Add circle to quadtree
+		spindex.insert(circle, get_bbox(center, radius))
+
+	print('Done.')
 	win.getMouse()
 	win.close()
 
